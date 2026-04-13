@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>连连看（手机音频修复版）</title>
+<title>小猴专用连连看（微信专用修复版）</title>
 <style>
 body{margin:0;background:#0f172a;color:#fff;font-family:Arial;text-align:center}
 #toolbar{margin-top:14px}
@@ -18,24 +18,42 @@ button{margin:5px;padding:8px 14px;border:none;border-radius:8px}
 @keyframes fadeOut{0%{transform:scale(1);opacity:1}100%{transform:scale(.3);opacity:0}}
 .hint{outline:3px solid yellow}
 canvas{position:absolute;pointer-events:none;z-index:10}
+#audioPanel{
+  margin:12px auto 0;
+  max-width:520px;
+  background:rgba(255,255,255,.08);
+  border-radius:12px;
+  padding:12px;
+}
+#audioStatus{font-size:14px;opacity:.9}
 </style>
 </head>
 <body>
-<h2>连连看（手机音频修复版）</h2>
+<h2>小猴专用连连看</h2>
 <p>关卡：<span id="level">1</span>　时间：<span id="time">60</span></p>
+
+<div id="audioPanel">
+  <div id="audioStatus">微信里请先点一次“开启声音”，再开始玩。</div>
+  <button id="enableAudioBtn">开启声音</button>
+</div>
+
 <div id="toolbar">
   <button onclick="hint()">提示</button>
   <button onclick="shuffle()">洗牌</button>
 </div>
+
 <div id="wrap">
   <div id="game"></div>
   <canvas id="canvas"></canvas>
 </div>
+
 <script>
 let level=1,size=4,timer=60,grid=[],first=null,removed=0,tId;
 const game=document.getElementById('game');
 const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d');
+const audioStatus=document.getElementById('audioStatus');
+const enableAudioBtn=document.getElementById('enableAudioBtn');
 
 const clickSound=new Audio('click.mp3');
 const matchSound=new Audio('match.mp3');
@@ -43,27 +61,58 @@ const invalidSound=new Audio('invalid.mp3');
 const winSound=new Audio('win.mp3');
 const timeupSound=new Audio('timeup.mp3');
 const sounds=[clickSound,matchSound,invalidSound,winSound,timeupSound];
+
 let audioUnlocked=false;
 
 function unlockAudio(){
-  if(audioUnlocked) return;
+  if(audioUnlocked) return Promise.resolve();
   audioUnlocked=true;
-  sounds.forEach(sound=>{
-    sound.volume=0;
-    sound.play().then(()=>{
-      sound.pause();
-      sound.currentTime=0;
-      sound.volume=1;
-    }).catch(()=>{});
+
+  return Promise.all(
+    sounds.map(sound=>{
+      sound.muted=true;
+      sound.playsInline=true;
+      sound.setAttribute && sound.setAttribute('playsinline','true');
+      sound.setAttribute && sound.setAttribute('webkit-playsinline','true');
+      return sound.play().then(()=>{
+        sound.pause();
+        sound.currentTime=0;
+        sound.muted=false;
+      }).catch(()=>{});
+    })
+  ).then(()=>{
+    audioStatus.textContent='声音已开启';
+    enableAudioBtn.style.display='none';
+  }).catch(()=>{
+    audioUnlocked=false;
+    audioStatus.textContent='开启声音失败，请再点一次“开启声音”。';
   });
 }
-document.addEventListener('touchstart', unlockAudio, {once:true});
-document.addEventListener('click', unlockAudio, {once:true});
+
+document.addEventListener('WeixinJSBridgeReady', function(){
+  unlockAudio();
+}, false);
+
+document.addEventListener('touchstart', function(){
+  unlockAudio();
+}, { once:true });
+
+document.addEventListener('click', function(){
+  unlockAudio();
+}, { once:true });
+
+enableAudioBtn.addEventListener('click', function(){
+  unlockAudio();
+});
 
 function play(sound){
   if(!sound || !audioUnlocked) return;
   sound.currentTime=0;
-  sound.play().catch(()=>{});
+  sound.play().catch(()=>{
+    audioStatus.textContent='当前环境播放音效受限，请再点一次“开启声音”。';
+    enableAudioBtn.style.display='inline-block';
+    audioUnlocked=false;
+  });
 }
 
 function config(){
