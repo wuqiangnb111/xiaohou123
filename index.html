@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>连连看（关卡版）</title>
+<style>
+:root{--bg:#0f172a;--panel:#111827;--accent:#22c55e;--text:#e5e7eb}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(135deg,#0b1220,#111827);color:var(--text);font-family:Arial}
+.header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px}
+.title{font-size:18px;font-weight:700}
+.stats{display:flex;gap:10px}
+.badge{background:#0b1220;border:1px solid #1f2937;border-radius:999px;padding:6px 10px;font-size:12px}
+.btn{background:var(--accent);border:none;border-radius:10px;padding:10px 14px;color:#052e16;font-weight:700}
+#wrap{max-width:420px;margin:0 auto;padding:10px}
+#container{position:relative}
+#game{display:grid;gap:6px}
+.cell{aspect-ratio:1/1;border-radius:14px;background:#0b1220;border:1px solid #1f2937;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.cell img{width:100%;height:100%;object-fit:cover}
+.empty{visibility:hidden}
+.selected{outline:3px solid var(--accent)}
+canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.footer{display:flex;gap:10px;justify-content:space-between;margin-top:10px}
+.win{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}
+.card{background:var(--panel);padding:18px;border-radius:16px;border:1px solid #1f2937;text-align:center}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div class="header">
+    <div class="title">连连看（关卡）</div>
+    <div class="stats">
+      <div class="badge">关卡：<span id="level">1</span></div>
+      <div class="badge">时间：<span id="time">60</span>s</div>
+    </div>
+  </div>
+
+  <div id="container">
+    <div id="game"></div>
+    <canvas id="lineCanvas"></canvas>
+  </div>
+
+  <div class="footer">
+    <button class="btn" onclick="initGame()">重新开始</button>
+  </div>
+</div>
+
+<div class="win" id="win">
+  <div class="card">
+    <h3 id="winText">通关</h3>
+    <button class="btn" onclick="nextLevel()">下一关</button>
+  </div>
+</div>
+
+<script>
+let level=1;
+let size=4;
+let timer=60,tId=null;
+let grid=[],first=null,removed=0;
+
+const game=document.getElementById('game');
+const canvas=document.getElementById('lineCanvas');
+const ctx=canvas.getContext('2d');
+
+const levelEl=document.getElementById('level');
+const timeEl=document.getElementById('time');
+
+function configByLevel(){
+  size = 4 + Math.min(level-1,3)*2; // 4→6→8→10
+  timer = 60 - (level-1)*5;
+  if(timer<20) timer=20;
+}
+
+function initGame(){
+  clearInterval(tId);
+  level=1;
+  startLevel();
+}
+
+function startLevel(){
+  configByLevel();
+  removed=0;
+  first=null;
+
+  levelEl.textContent=level;
+  timeEl.textContent=timer;
+
+  game.style.gridTemplateColumns=`repeat(${size},1fr)`;
+
+  let totalPairs=(size*size)/2;
+  let base=['img1.jpg','img2.jpg','img3.jpg','img4.jpg','img5.jpg','img6.jpg'];
+  let arr=[];
+  for(let i=0;i<totalPairs;i++){let img=base[i%base.length];arr.push(img,img);} 
+  arr.sort(()=>Math.random()-0.5);
+
+  grid=[];
+  for(let i=0;i<size;i++) grid[i]=arr.slice(i*size,(i+1)*size);
+
+  render();
+
+  tId=setInterval(()=>{
+    timer--; timeEl.textContent=timer;
+    if(timer<=0){
+      clearInterval(tId);
+      alert('失败！');
+      initGame();
+    }
+  },1000);
+}
+
+function render(){
+  game.innerHTML='';
+  setTimeout(()=>{canvas.width=game.offsetWidth;canvas.height=game.offsetHeight},0);
+
+  grid.forEach((row,i)=>row.forEach((cell,j)=>{
+    let d=document.createElement('div'); d.className='cell';
+    if(cell){let img=document.createElement('img');img.src=cell;d.appendChild(img);} else d.classList.add('empty');
+    d.onclick=()=>clickCell(i,j,d);
+    d.addEventListener('touchstart',e=>{e.preventDefault();clickCell(i,j,d)});
+    game.appendChild(d);
+  }));
+}
+
+function clickCell(x,y,div){
+  if(!grid[x][y]) return;
+
+  if(!first){ first={x,y,div}; div.classList.add('selected'); }
+  else{
+    if(first.x===x && first.y===y){ first.div.classList.remove('selected'); first=null; return; }
+
+    let path=findPath(first.x,first.y,x,y);
+
+    if(grid[first.x][first.y]===grid[x][y] && path){
+      drawLine(path);
+      setTimeout(()=>{
+        grid[first.x][first.y]=null;
+        grid[x][y]=null;
+        removed+=2;
+        if(removed===size*size) win();
+        render();
+      },200);
+    }
+
+    first.div.classList.remove('selected');
+    first=null;
+  }
+}
+
+function getCenter(x,y){let w=game.offsetWidth/size;return {x:y*w+w/2,y:x*w+w/2}}
+function drawLine(path){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.beginPath();let p0=getCenter(path[0].x,path[0].y);ctx.moveTo(p0.x,p0.y);for(let i=1;i<path.length;i++){let p=getCenter(path[i].x,path[i].y);ctx.lineTo(p.x,p.y);}ctx.strokeStyle='#22c55e';ctx.lineWidth=3;ctx.stroke();setTimeout(()=>ctx.clearRect(0,0,canvas.width,canvas.height),200)}
+
+function findPath(x1,y1,x2,y2){
+  let q=[{x:x1,y:y1,turns:0,dir:-1,path:[{x:x1,y:y1}]}];
+  let vis=Array.from({length:size},()=>Array(size).fill(false));
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  while(q.length){let c=q.shift(); if(c.turns>2) continue;
+    for(let i=0;i<4;i++){let nx=c.x+dirs[i][0],ny=c.y+dirs[i][1];let turns=c.dir===-1||c.dir===i?c.turns:c.turns+1;
+      if(nx<0||ny<0||nx>=size||ny>=size) continue;
+      if(vis[nx][ny]) continue;
+      if(grid[nx][ny] && !(nx===x2&&ny===y2)) continue;
+      let np=c.path.concat([{x:nx,y:ny}]);
+      if(nx===x2&&ny===y2) return np;
+      vis[nx][ny]=true;
+      q.push({x:nx,y:ny,dir:i,turns,path:np});
+    }
+  }
+  return null;
+}
+
+function win(){
+  clearInterval(tId);
+  document.getElementById('winText').textContent=`第${level}关完成！`;
+  document.getElementById('win').style.display='flex';
+}
+
+function nextLevel(){
+  document.getElementById('win').style.display='none';
+  level++;
+  startLevel();
+}
+
+initGame();
+</script>
+</body>
+</html>
