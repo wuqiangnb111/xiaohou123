@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小猴专用版</title>
+<style>
+body{margin:0;background:#0f172a;color:#fff;font-family:Arial;text-align:center}
+#toolbar{margin-top:14px}
+button{margin:5px;padding:8px 14px;border:none;border-radius:8px}
+#wrap{position:relative;max-width:520px;margin:20px auto}
+#game{display:grid;gap:5px}
+.cell{aspect-ratio:1/1;background:#111;border-radius:10px;overflow:hidden}
+.cell img{width:100%;height:100%;object-fit:cover}
+.selected{outline:3px solid #22c55e}
+.empty{background:transparent;border:none}
+.fade-out{animation:fadeOut .25s forwards}
+@keyframes fadeOut{0%{transform:scale(1);opacity:1}100%{transform:scale(.3);opacity:0}}
+.hint{outline:3px solid yellow}
+canvas{position:absolute;pointer-events:none;z-index:10}
+#tips{max-width:520px;margin:12px auto 0;font-size:14px;opacity:.9}
+</style>
+</head>
+<body>
+<h2>小猴专用版</h2>
+<p>关卡：<span id="level">1</span>　时间：<span id="time">60</span></p>
+<div id="tips">手机里先随便点一下页面，再开始玩，音效更容易正常。</div>
+
+<div id="toolbar">
+  <button onclick="hint()">提示</button>
+  <button onclick="shuffle()">洗牌</button>
+</div>
+
+<div id="wrap">
+  <div id="game"></div>
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+let level=1,size=4,timer=60,grid=[],first=null,removed=0,tId;
+let audioReady=false;
+
+const game=document.getElementById('game');
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+
+const bgm = new Audio('bgm.m4a');
+bgm.loop = true;
+bgm.volume = 0.25;
+bgm.preload = 'auto';
+bgm.playsInline = true;
+
+function warmupAudio(){
+  if(audioReady) return;
+  audioReady=true;
+
+  ['click.m4a','match.m4a','invalid.m4a','win.m4a','timeup.m4a'].forEach(src=>{
+    const a=new Audio(src);
+    a.muted=true;
+    a.playsInline=true;
+    a.load();
+    a.play().then(()=>{
+      a.pause();
+      a.currentTime=0;
+      a.muted=false;
+    }).catch(()=>{});
+  });
+
+  bgm.play().catch(()=>{});
+}
+
+document.addEventListener('touchstart', warmupAudio, {once:true});
+document.addEventListener('click', warmupAudio, {once:true});
+document.addEventListener('WeixinJSBridgeReady', warmupAudio, false);
+
+function playSound(src){
+  const a=new Audio(src);
+  a.preload='auto';
+  a.playsInline=true;
+  a.load();
+  a.currentTime=0;
+  a.play().catch(()=>{});
+}
+
+function config(){
+  size=4+Math.min(level-1,3)*2;
+  timer=60-(level-1)*5;
+  if(timer<20) timer=20;
+}
+
+function hasMatch(){
+  for(let i=1;i<=size;i++){
+    for(let j=1;j<=size;j++){
+      if(!grid[i][j]) continue;
+      for(let x=1;x<=size;x++){
+        for(let y=1;y<=size;y++){
+          if(i===x && j===y) continue;
+          if(!grid[x][y]) continue;
+          if(grid[i][j]===grid[x][y] && findPath(i,j,x,y)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function generateGrid(){
+  let tries=0;
+  do{
+    const base=['img1.jpg','img2.jpg','img3.jpg','img4.jpg','img5.jpg','img6.jpg','img7.jpg','img8.jpg'];
+    let arr=[];
+    for(let i=0;i<(size*size)/2;i++){
+      const img=base[i%base.length];
+      arr.push(img,img);
+    }
+    arr.sort(()=>Math.random()-0.5);
+    grid=Array.from({length:size+2},()=>Array(size+2).fill(null));
+    for(let i=1;i<=size;i++){
+      for(let j=1;j<=size;j++){
+        grid[i][j]=arr[(i-1)*size+(j-1)];
+      }
+    }
+    tries++;
+  }while(!hasMatch() && tries<50);
+}
+
+function start(){
+  clearInterval(tId);
+  config();
+  removed=0;
+  first=null;
+  document.getElementById('level').textContent=level;
+  document.getElementById('time').textContent=timer;
+  game.style.gridTemplateColumns=`repeat(${size},1fr)`;
+  generateGrid();
+  render();
+  tId=setInterval(()=>{
+    timer--;
+    document.getElementById('time').textContent=timer;
+    if(timer<=0){
+      clearInterval(tId);
+      playSound('timeup.m4a');
+      alert('时间到');
+      level=1;
+      start();
+    }
+  },1000);
+}
+
+function getCellSize(){ return game.offsetWidth/size; }
+
+function setupCanvas(){
+  const cell=getCellSize();
+  const pad=cell/2;
+  canvas.width=game.offsetWidth + pad*2;
+  canvas.height=game.offsetHeight + pad*2;
+  canvas.style.left=(-pad)+'px';
+  canvas.style.top=(-pad)+'px';
+}
+
+function render(){
+  game.innerHTML='';
+  for(let i=1;i<=size;i++){
+    for(let j=1;j<=size;j++){
+      const cell=grid[i][j];
+      const d=document.createElement('div');
+      d.className='cell';
+      if(cell){
+        const img=document.createElement('img');
+        img.src=cell;
+        d.appendChild(img);
+      }else{
+        d.classList.add('empty');
+      }
+      d.onclick=()=>clickCell(i,j,d);
+      d.addEventListener('touchstart',e=>{
+        e.preventDefault();
+        clickCell(i,j,d);
+      });
+      game.appendChild(d);
+    }
+  }
+  requestAnimationFrame(setupCanvas);
+}
+
+function clickCell(x,y,div){
+  warmupAudio();
+  if(!grid[x][y]) return;
+
+  if(!first){
+    playSound('click.m4a');
+    first={x,y,div};
+    div.classList.add('selected');
+    return;
+  }
+
+  if(first.x===x && first.y===y){
+    first.div.classList.remove('selected');
+    first=null;
+    return;
+  }
+
+  const path=findPath(first.x,first.y,x,y);
+
+  if(grid[first.x][first.y]===grid[x][y] && path){
+    playSound('match.m4a');
+    drawPolyline(path);
+    first.div.classList.add('fade-out');
+    div.classList.add('fade-out');
+    const a={x:first.x,y:first.y}, b={x,y};
+    setTimeout(()=>{
+      grid[a.x][a.y]=null;
+      grid[b.x][b.y]=null;
+      removed+=2;
+      if(removed===size*size){
+        playSound('win.m4a');
+        level++;
+        setTimeout(start,800);
+        return;
+      }
+      render();
+      setTimeout(()=>{ if(!hasMatch()) shuffle(); },150);
+    },250);
+  }else{
+    playSound('invalid.m4a');
+  }
+
+  first.div.classList.remove('selected');
+  first=null;
+}
+
+function keyOf(x,y,dir,turns){ return `${x},${y},${dir},${turns}`; }
+
+function compressPath(path){
+  if(path.length<=2) return path;
+  const result=[path[0]];
+  for(let i=1;i<path.length-1;i++){
+    const a=result[result.length-1], b=path[i], c=path[i+1];
+    const sameRow=(a.x===b.x && b.x===c.x);
+    const sameCol=(a.y===b.y && b.y===c.y);
+    if(!(sameRow || sameCol)) result.push(b);
+  }
+  result.push(path[path.length-1]);
+  return result;
+}
+
+function findPath(x1,y1,x2,y2){
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  const queue=[{x:x1,y:y1,dir:-1,turns:0,path:[{x:x1,y:y1}]}];
+  const visited=new Set();
+  while(queue.length){
+    const cur=queue.shift();
+    for(let i=0;i<4;i++){
+      const nextTurns=(cur.dir===-1 || cur.dir===i) ? cur.turns : cur.turns+1;
+      if(nextTurns>2) continue;
+      let nx=cur.x, ny=cur.y;
+      while(true){
+        nx+=dirs[i][0];
+        ny+=dirs[i][1];
+        if(nx<0 || ny<0 || nx>=size+2 || ny>=size+2) break;
+        if(grid[nx][ny] && !(nx===x2 && ny===y2)) break;
+        const stateKey=keyOf(nx,ny,i,nextTurns);
+        if(visited.has(stateKey)) continue;
+        visited.add(stateKey);
+        const newPath=cur.path.concat([{x:nx,y:ny}]);
+        if(nx===x2 && ny===y2) return compressPath(newPath);
+        queue.push({x:nx,y:ny,dir:i,turns:nextTurns,path:newPath});
+      }
+    }
+  }
+  return null;
+}
+
+function boardPoint(x,y){
+  const cell=getCellSize();
+  const pad=cell/2;
+  return {x: pad+(y-1)*cell+cell/2, y: pad+(x-1)*cell+cell/2};
+}
+
+function drawPolyline(path){
+  setupCanvas();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.beginPath();
+  const p0=boardPoint(path[0].x,path[0].y);
+  ctx.moveTo(p0.x,p0.y);
+  for(let i=1;i<path.length;i++){
+    const p=boardPoint(path[i].x,path[i].y);
+    ctx.lineTo(p.x,p.y);
+  }
+  ctx.strokeStyle='#22c55e';
+  ctx.lineWidth=4;
+  ctx.lineJoin='round';
+  ctx.lineCap='round';
+  ctx.stroke();
+  setTimeout(()=>ctx.clearRect(0,0,canvas.width,canvas.height),220);
+}
+
+function hint(){
+  document.querySelectorAll('.hint').forEach(el=>el.classList.remove('hint'));
+  for(let i=1;i<=size;i++){
+    for(let j=1;j<=size;j++){
+      if(!grid[i][j]) continue;
+      for(let x=1;x<=size;x++){
+        for(let y=1;y<=size;y++){
+          if(i===x && j===y) continue;
+          if(!grid[x][y]) continue;
+          if(grid[i][j]===grid[x][y] && findPath(i,j,x,y)){
+            const cells=document.querySelectorAll('.cell');
+            const index1=(i-1)*size+(j-1), index2=(x-1)*size+(y-1);
+            cells[index1].classList.add('hint');
+            cells[index2].classList.add('hint');
+            setTimeout(()=>{
+              cells[index1]?.classList.remove('hint');
+              cells[index2]?.classList.remove('hint');
+            },1000);
+            return;
+          }
+        }
+      }
+    }
+  }
+}
+
+function shuffle(){
+  const arr=[];
+  for(let i=1;i<=size;i++){
+    for(let j=1;j<=size;j++){
+      if(grid[i][j]) arr.push(grid[i][j]);
+    }
+  }
+  let tries=0;
+  do{
+    arr.sort(()=>Math.random()-0.5);
+    let idx=0;
+    for(let i=1;i<=size;i++){
+      for(let j=1;j<=size;j++){
+        if(grid[i][j]) grid[i][j]=arr[idx++];
+      }
+    }
+    tries++;
+  }while(!hasMatch() && tries<50);
+  render();
+}
+
+window.addEventListener('resize', setupCanvas);
+start();
+</script>
+</body>
+</html>
